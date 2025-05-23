@@ -1,0 +1,182 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Find Food Near Me</title>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.3/dist/leaflet.css" />
+  <link rel="stylesheet" href="https://unpkg.com/leaflet-routing-machine@3.2.12/dist/leaflet-routing-machine.css" />
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      margin: 0;
+      padding: 0;
+    }
+    header {
+      padding: 20px;
+      text-align: center;
+      background-color: #ff5722;
+      color: white;
+    }
+    #find-btn {
+      background: #fff;
+      color: #ff5722;
+      border: 2px solid #fff;
+      padding: 10px 20px;
+      font-size: 18px;
+      cursor: pointer;
+      border-radius: 6px;
+      transition: 0.3s ease;
+    }
+    #find-btn:hover {
+      background: #ffccbc;
+    }
+    #status {
+      text-align: center;
+      margin: 10px;
+      font-weight: bold;
+    }
+    #map {
+      height: 600px;
+      width: 100%;
+    }
+    .popup-btn {
+      margin-top: 5px;
+      display: inline-block;
+      padding: 6px 10px;
+      background: #ff5722;
+      color: white;
+      text-decoration: none;
+      border-radius: 5px;
+      font-size: 13px;
+    }
+    .popup-btn:hover {
+      background: #e64a19;
+    }
+  </style>
+</head>
+<body>
+
+  <header>
+    <h1>Find Food Near Me</h1>
+    <button id="find-btn" onclick="findRestaurants()">🍔 Find Food Near Me</button>
+  </header>
+
+  <div id="status">Click the button to find nearby restaurants.</div>
+  <div id="map"></div>
+
+  <!-- Leaflet JS -->
+  <script src="https://unpkg.com/leaflet@1.9.3/dist/leaflet.js"></script>
+  <script src="https://unpkg.com/leaflet-routing-machine@3.2.12/dist/leaflet-routing-machine.min.js"></script>
+
+  <script>
+    const apiKey = "095fc927e47e425cac17b5f0e2c3d7a6"; // Replace with your Geoapify key
+    let map, markerGroup, routingControl;
+    let userLocation = null;
+
+    function initMap(lat, lon) {
+      if (map) {
+        map.setView([lat, lon], 14);
+        return;
+      }
+      map = L.map('map').setView([lat, lon], 14);
+      L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        maxZoom: 20,
+      }).addTo(map);
+      markerGroup = L.layerGroup().addTo(map);
+    }
+
+    async function findRestaurants() {
+      const status = document.getElementById("status");
+      status.textContent = "Getting your location...";
+
+      if (!navigator.geolocation) {
+        status.textContent = "Geolocation not supported.";
+        return;
+      }
+
+      navigator.geolocation.getCurrentPosition(async (position) => {
+        const lat = position.coords.latitude;
+        const lon = position.coords.longitude;
+        userLocation = { lat, lon };
+
+        initMap(lat, lon);
+        markerGroup.clearLayers();
+
+        // 🔵 Current location marker with different color
+        L.circleMarker([lat, lon], {
+          radius: 8,
+          color: "#1976d2",
+          fillColor: "#2196f3",
+          fillOpacity: 1
+        }).addTo(map).bindPopup("📍 You are here").openPopup();
+
+        status.textContent = "Finding restaurants nearby...";
+
+        const url = `https://api.geoapify.com/v2/places?categories=catering.restaurant&filter=circle:${lon},${lat},3000&bias=proximity:${lon},${lat}&limit=20&apiKey=${apiKey}`;
+
+        try {
+          const response = await fetch(url);
+          const data = await response.json();
+
+          if (!data.features.length) {
+            status.textContent = "No restaurants found.";
+            return;
+          }
+
+          data.features.forEach((place) => {
+            const props = place.properties;
+            const name = props.name || "Unnamed";
+            const address = props.formatted || "No address";
+            const placeLat = props.lat;
+            const placeLon = props.lon;
+
+            // Calculate distance in meters and convert to km with 2 decimals
+            const distance = L.latLng(userLocation.lat, userLocation.lon)
+                              .distanceTo([placeLat, placeLon]);
+            const distanceInKm = (distance / 1000).toFixed(2);
+
+            const marker = L.marker([placeLat, placeLon]);
+
+            marker.on("click", () => {
+              // Remove previous route if any
+              if (routingControl) map.removeControl(routingControl);
+
+              // Add new route from user location to clicked restaurant
+              routingControl = L.Routing.control({
+                waypoints: [
+                  L.latLng(userLocation.lat, userLocation.lon),
+                  L.latLng(placeLat, placeLon),
+                ],
+                routeWhileDragging: false,
+                show: false,
+                addWaypoints: false,
+                lineOptions: {
+                  styles: [{ color: '#ff5722', weight: 5 }],
+                }
+              }).addTo(map);
+            });
+
+            const encodedName = encodeURIComponent(name);
+            const popupContent = `
+              <strong>${name}</strong><br>${address}<br>
+              📏 Distance: ${distanceInKm} km<br>
+              <a class="popup-btn" href="/shop-details.html?name=${encodedName}" target="_blank">View Details</a>
+            `;
+
+            marker.bindPopup(popupContent);
+            markerGroup.addLayer(marker);
+          });
+
+          status.textContent = "✅ Restaurants loaded successfully.";
+        } catch (err) {
+          console.error(err);
+          status.textContent = "❌ Failed to fetch data.";
+        }
+      }, () => {
+        status.textContent = "❌ Location access denied.";
+      });
+    }
+  </script>
+</body>
+</html>
